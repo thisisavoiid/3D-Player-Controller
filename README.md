@@ -8,7 +8,6 @@ The architecture is divided into modular components for input, movement, interac
 ## Table of Contents
 
 - [Features](#features)
-- [Installation](#installation)
 - [Usage](#usage)
 - [Project Structure](#project-structure)
 - [Core Mechanics & Design](#core-mechanics--design)
@@ -26,26 +25,6 @@ The architecture is divided into modular components for input, movement, interac
 - **Input System** integration for movement, look, and interaction actions.
 - **Reusable `IInteractable` interface** for easy setup of world objects.
 
----
-
-## Installation
-
-1. Clone the repository (placeholder):
-
-```bash
-git clone [https://github.com/your-username/FirstPersonControllerTemplate.git](https://github.com/your-username/FirstPersonControllerTemplate.git)
-````
-
-2.  Navigate into the project directory:
-
-<!-- end list -->
-
-```bash
-cd FirstPersonControllerTemplate
-```
-
-3.  Open the directory in the **Unity Editor** (2021 LTS or newer recommended).
-
 -----
 
 ## Usage
@@ -62,7 +41,7 @@ cd FirstPersonControllerTemplate
 | **Look** | **Mouse Movement** | Rotates the camera and player body. |
 | **Sprint** | **Left Shift** | Increases movement speed. |
 | **Jump** | **Space** | Executes a vertical impulse jump. |
-| **Interact** | **Left Mouse Button** | Activates the `Interact()` method on objects within reach. |
+| **Interact** | **E Key** | Activates the `Interact()` method on objects within reach. |
 
 -----
 
@@ -112,4 +91,4 @@ Below is an overview of the main components of the codebase:
 
 -----
 
-> Built with ❤️ in C\#.
+> Built with ❤️ in C#.
