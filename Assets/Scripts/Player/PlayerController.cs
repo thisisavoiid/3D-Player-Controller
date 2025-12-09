@@ -1,76 +1,129 @@
-using System.Linq;
-using Unity.VisualScripting;
+﻿using System.Linq;
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.ProBuilder.MeshOperations;
 
+/// <summary>
+/// Handles player input, movement, camera control, and interactions.
+/// Encapsulates references to all player-related systems (movement, look, collision, interaction, etc.).
+/// </summary>
 public class PlayerController : MonoBehaviour
 {
-    // ====================================================================================
-    // ENUMS
-    // ====================================================================================
-
-    /// <summary>
-    /// Defines the current movement state of the player.
-    /// </summary>
-    private enum MovementState
-    {
-        Grounded,
-        InAir
-    }
-
-    /// <summary>
-    /// Defines the current movement mode of the player.
-    /// </summary>
-    private enum MovementMode
-    {
-        Walk,
-        Sprint
-    }
-
     // ====================================================================================
     // INSPECTOR FIELDS (Configuration / Settings)
     // ====================================================================================
 
+    [Header("Movement Settings")]
     [SerializeField] private float _speed = 7.0f;
+    public float Speed => _speed;
+
     [SerializeField] private float _jumpPower = 7.5f;
-    [SerializeField] private float _overlapBoxScale = 0.5f;
+    public float JumpPower => _jumpPower;
+
     [SerializeField] private float _inAirSpeedScale = 0.8f;
+    public float InAirSpeedScale => _inAirSpeedScale;
+
     [SerializeField] private float _sprintSpeedScale = 1.5f;
+    public float SprintSpeedScale => _sprintSpeedScale;
+
     [SerializeField] private float _inAirSlowdownSmoothing = 10f;
-    [SerializeField] private float _lookSensitivity = 0.07f;
+    public float InAirSlowdownSmoothing => _inAirSlowdownSmoothing;
+
+    [Header("Collision Settings")]
+    [SerializeField] private float _overlapBoxScale = 0.5f;
+    public float OverlapBoxScale => _overlapBoxScale;
+
     [SerializeField] private CapsuleCollider _playerCollider;
+    public CapsuleCollider PlayerCollider => _playerCollider;
+
     [SerializeField] private LayerMask _resetJumpLayers;
+    public LayerMask ResetJumpLayers => _resetJumpLayers;
+
+    [Header("Camera Settings")]
+    [SerializeField] private float _lookSensitivity = 0.07f;
+    public float LookSensitivity => _lookSensitivity;
+
+    [Header("Dependencies")]
+    [SerializeField] private PlayerInteraction _playerInteraction;
+    public PlayerInteraction PlayerInteraction => _playerInteraction;
+
+    [SerializeField] private PlayerCollision _playerCollision;
+    public PlayerCollision PlayerCollision => _playerCollision;
+
+    [SerializeField] private PlayerGizmos _playerGizmos;
+    public PlayerGizmos PlayerGizmos => _playerGizmos;
+
+    [SerializeField] private PlayerLook _playerLook;
+    public PlayerLook PlayerLook => _playerLook;
+
+    [SerializeField] private PlayerMovement _playerMovement;
+    public PlayerMovement PlayerMovement => _playerMovement;
+
 
     // ====================================================================================
-    // PRIVATE FIELDS (Components & Internal State)
+    // PRIVATE FIELDS
     // ====================================================================================
 
     private Rigidbody _rb;
+    public Rigidbody Rigidbody => _rb;
+
     private Camera _camera;
-    private PlayerInteraction _interaction;
+    public Camera Camera => _camera;
+
     private GameInput _gameInput;
+    public GameInput GameInput => _gameInput;
 
+    // Input actions
     private InputAction _move;
-    private InputAction _jump;
-    private InputAction _look;
-    private InputAction _interact;
-    private InputAction _sprint;
+    public Vector3 Move => _move.ReadValue<Vector3>();
 
+    private InputAction _jump;
+    public bool IsJumping => _jump.WasPressedThisFrame();
+
+    private InputAction _look;
+    public Vector2 Look => _look.ReadValue<Vector2>();
+
+    private InputAction _interact;
+    public Vector2 Interact => _look.ReadValue<Vector2>(); // same as original logic
+
+    private InputAction _sprint;
+    public bool IsSprinting => _sprint.IsPressed();
+
+    // Camera rotation values
     private float _cameraY;
+    public float CameraY => _cameraY;
+
     private float _cameraX;
-    private MovementState _currentMovementState;
-    private MovementMode _currentMovementMode;
+    public float CameraX => _cameraX;
+
+    // Jump queuing
+    private bool _isJumpQueued;
+    public bool IsJumpQueued => _isJumpQueued;
+
+    // Player movement state
+    private PlayerMovement.MovementState _currentMovementState;
+    public PlayerMovement.MovementState CurrentMovementState
+    {
+        get => _currentMovementState;
+        set => _currentMovementState = value;
+    }
+
+    // Cached player collider dimensions for ground checks
     private Vector2 _playerColliderDimensions;
+    public Vector2 PlayerColliderDimensions => _playerColliderDimensions;
+
 
     // ====================================================================================
     // UNITY CALLBACKS
     // ====================================================================================
 
+    /// <summary>
+    /// Initialize input actions and references before Start.
+    /// </summary>
     private void Awake()
     {
         _gameInput = new GameInput();
 
-        // Initialize Input Actions
         _jump = _gameInput.Player.Jump;
         _sprint = _gameInput.Player.Sprint;
         _move = _gameInput.Player.Move;
@@ -78,6 +131,10 @@ public class PlayerController : MonoBehaviour
         _interact = _gameInput.Player.Interact;
     }
 
+    /// <summary>
+    /// Cache components and set initial values.
+    /// Lock cursor for first-person control.
+    /// </summary>
     private void Start()
     {
         Cursor.lockState = CursorLockMode.Locked;
@@ -85,219 +142,82 @@ public class PlayerController : MonoBehaviour
 
         _rb = GetComponent<Rigidbody>();
         _camera = GetComponentInChildren<Camera>();
-        _interaction = GetComponent<PlayerInteraction>();
+        _playerInteraction = GetComponent<PlayerInteraction>();
 
-        _playerColliderDimensions = new Vector2(_playerCollider.radius * 2, _playerCollider.height);
+        // Store player collider size for ground detection
+        _playerColliderDimensions = new Vector2(
+            _playerCollider.radius * 2,
+            _playerCollider.height
+        );
     }
 
-    private void OnEnable()
-    {
-        _gameInput.Enable();
-    }
+    private void OnEnable() => _gameInput.Enable();
+    private void OnDisable() => _gameInput.Disable();
 
-    private void OnDisable()
-    {
-        _gameInput.Disable();
-    }
-
+    /// <summary>
+    /// Handle collision events and set grounded state when player touches valid surfaces.
+    /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
-        Collider[] groundCollisionObjects = GetGroundCollisionObjects();
+        Collider[] groundCollisionObjects = _playerCollision.GetGroundCollisionObjects();
 
         if (groundCollisionObjects == null)
         {
-            Debug.Log("[PLAYER] Invalid collision layer detected inside OverlapBox. -");
+            Debug.Log("[PLAYER] Invalid collision layer detected inside OverlapBox.");
             return;
         }
 
-        SetMovementState(MovementState.Grounded);
+        _playerMovement.SetMovementState(PlayerMovement.MovementState.Grounded);
     }
 
+    /// <summary>
+    /// Physics-based movement and jump execution.
+    /// </summary>
     private void FixedUpdate()
     {
-        Move();
+        _playerMovement.Move();
+
+        if (_isJumpQueued)
+        {
+            _isJumpQueued = false;
+            _playerMovement.Jump();
+        }
     }
 
+    /// <summary>
+    /// Handles input for looking, interaction, and queuing jumps each frame.
+    /// </summary>
     private void Update()
     {
-        Look();
+        // Update camera rotation
+        _playerLook.Look();
 
+        // Handle player interaction input
         if (_interact.WasPressedThisFrame())
         {
-            Debug.Log($"[PLAYER] Interaction event has been casted. -");
-            Interact();
-        }
-
-        if (_jump.WasPressedThisFrame())
-        {
-            if (_currentMovementState != MovementState.InAir)
+            Debug.Log("[PLAYER] Interaction event cast.");
+            IInteractable interactable = _playerInteraction.GetInteractable();
+            if (interactable != null)
             {
-                Jump();
+                interactable.Interact();
             }
             else
             {
-                Debug.Log($"[PLAYER] Jump failed: Player state is not Grounded. -");
+                Debug.LogError("[PLAYER] Invalid interaction attempt.");
             }
         }
-    }
 
-    private void OnDrawGizmos()
-    {
-        Gizmos.color = Color.green;
-        Gizmos.DrawWireCube(
-            new Vector3(transform.position.x, transform.position.y - _playerColliderDimensions.y / 2, transform.position.z),
-            Vector3.one * _overlapBoxScale
-        );
-
-        Gizmos.color = Color.cyan;
-        if (_playerCollider != null && _rb != null)
+        // Handle jump input
+        if (_jump.WasPressedThisFrame())
         {
-            Vector3 startPos = _rb.transform.position + (Vector3.down * (_playerColliderDimensions.y / 2));
-            float distanceToGround = GetDistanceToGround();
-
-            if (distanceToGround > 0)
+            if (_currentMovementState != PlayerMovement.MovementState.InAir)
             {
-                Gizmos.DrawLine(
-                    startPos,
-                    startPos + Vector3.down * distanceToGround
-                );
+                _isJumpQueued = true;
+            }
+            else
+            {
+                Debug.Log("[PLAYER] Jump failed: Player is not grounded.");
             }
         }
-
-    }
-
-    // ====================================================================================
-    // INPUT & MOVEMENT LOGIC
-    // ====================================================================================
-
-    /// <summary>
-    /// Moves the player based on input and applies forces relative to current <see cref="MovementState"/>.
-    /// </summary>
-    private void Move()
-    {
-        Vector3 moveValue = _move.ReadValue<Vector3>().normalized;
-        Vector3 moveDirection = transform.TransformDirection(moveValue);
-        Vector3 targetLinearVelocity = moveDirection * _speed;
-
-        if (_sprint.IsPressed())
-        {
-            targetLinearVelocity *= _sprintSpeedScale;
-        }
-
-        if (_currentMovementState == MovementState.InAir)
-        {
-            Vector3 currentHorizontalVelocity = new Vector3(_rb.linearVelocity.x, 0, _rb.linearVelocity.z);
-            Vector3 targetHorizontalVelocity = targetLinearVelocity * _inAirSpeedScale;
-            Vector3 lerpedHorizontalVelocity = Vector3.Lerp(currentHorizontalVelocity, targetHorizontalVelocity, Time.deltaTime * _inAirSlowdownSmoothing);
-            targetLinearVelocity = new Vector3(lerpedHorizontalVelocity.x, targetLinearVelocity.y, lerpedHorizontalVelocity.z);
-        }
-
-        targetLinearVelocity.y = _rb.linearVelocity.y;
-
-        if (moveValue != Vector3.zero)
-        {
-            _rb.linearVelocity = targetLinearVelocity;
-        }
-    }
-
-    /// <summary>
-    /// Rotates the camera and player transform based on look input.
-    /// </summary>
-    private void Look()
-    {
-        Vector2 lookValue = _look.ReadValue<Vector2>();
-
-        _cameraX += lookValue.x * _lookSensitivity;
-        _cameraY += lookValue.y * _lookSensitivity;
-
-        _cameraY = Mathf.Clamp(_cameraY, -90f, 90f);
-
-        _camera.transform.rotation = Quaternion.Euler(
-            _cameraY * -1,
-            _cameraX,
-            0
-        );
-
-        _rb.transform.rotation = Quaternion.Euler(
-            _rb.transform.rotation.x,
-            _cameraX,
-            _rb.transform.rotation.z
-        );
-    }
-
-    /// <summary>
-    /// Makes the player jump and updates the <see cref="MovementState"/> to <see cref="MovementState.InAir"/>.
-    /// </summary>
-    private void Jump()
-    {
-        _currentMovementState = MovementState.InAir;
-        Debug.Log($"[PLAYER] Updated movement state: {_currentMovementState}. -");
-        _rb.AddForce(_rb.transform.up * _jumpPower, ForceMode.Impulse);
-    }
-
-    /// <summary>
-    /// Attempts to interact with the current interactable object the player is looking at.
-    /// </summary>
-    private void Interact()
-    {
-        IInteractable interactable = _interaction.GetInteractable();
-
-        if (interactable == null)
-        {
-            Debug.LogError("Player tried to interact but no valid interaction object could be found -");
-            return;
-        }
-
-        interactable.Interact();
-    }
-
-    // ====================================================================================
-    // HELPER METHODS (State & Collision)
-    // ====================================================================================
-
-    /// <summary>
-    /// Updates the player's <see cref="MovementState"/>.
-    /// </summary>
-    /// <param name="state">New <see cref="MovementState"/> to apply.</param>
-    private void SetMovementState(MovementState state)
-    {
-        _currentMovementState = state;
-    }
-
-    /// <summary>
-    /// Calculates the distance between the player and the nearest 
-    /// object from the <see cref="_resetJumpLayers"/> <see cref="LayerMask"/> on the y axis.
-    /// </summary>
-    /// <returns>Distance between the player and the nearest <see cref="_resetJumpLayers"/> object as float.</returns>
-    private float GetDistanceToGround()
-    {
-        Physics.Raycast(
-            _playerCollider.transform.position + (Vector3.down * (_playerColliderDimensions.y / 2)),
-            _rb.transform.up * -1,
-            out RaycastHit hitInfo,
-            Mathf.Infinity,
-
-            _resetJumpLayers);
-
-        return Mathf.Max(0, Mathf.Abs(hitInfo.distance));
-    }
-
-    /// <summary>
-    /// Returns all colliders under the player to detect ground contacts.
-    /// </summary>
-    /// <returns>Array of colliders detected under the player.</returns>
-    private Collider[] GetGroundCollisionObjects()
-    {
-        Collider[] hitColliders = Physics.OverlapBox(
-            new Vector3(
-                transform.position.x,
-                transform.position.y - _playerColliderDimensions.y / 2,
-                transform.position.z
-            ),
-            Vector3.one * _overlapBoxScale,
-            Quaternion.identity,
-            _resetJumpLayers
-        );
-        return hitColliders;
     }
 }

@@ -1,0 +1,6 @@
+# Unity root-folder CSProj fix
+root = true
+
+[*.csproj]
+# Ensure Visual Studio doesn't try to generate extra references in the solution
+dotnet_generate_package_references = false
