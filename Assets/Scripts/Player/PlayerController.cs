@@ -105,7 +105,7 @@ public class PlayerController : MonoBehaviour
     public Vector2 Look => _look.ReadValue<Vector2>();
 
     private InputAction _interact;
-    public Vector2 Interact => _look.ReadValue<Vector2>();
+    public bool Interact => _interact.WasPressedThisFrame();
 
     private InputAction _sprint;
     public bool IsSprinting => _sprint.IsPressed();
