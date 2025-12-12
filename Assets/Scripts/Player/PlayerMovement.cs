@@ -1,8 +1,10 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
+using UnityEngine.Events;
 
 /// <summary>
-/// Handles player movement, including grounded and in-air behavior,
-/// sprinting, and jumping mechanics.
+/// Handles player movement, speed scaling, sprint behavior,
+/// grounded vs. in-air movement, and triggers movement-related events.
 /// </summary>
 public class PlayerMovement : MonoBehaviour
 {
@@ -18,7 +20,7 @@ public class PlayerMovement : MonoBehaviour
     // ====================================================================================
 
     /// <summary>
-    /// Represents the current movement state of the player.
+    /// Represents the player's current grounded or in-air state.
     /// </summary>
     public enum MovementState
     {
@@ -28,81 +30,119 @@ public class PlayerMovement : MonoBehaviour
 
 
     // ====================================================================================
+    // EVENTS
+    // ====================================================================================
+
+    /// <summary>
+    /// Invoked when the player is sprinting. Passes the sprint FOV.
+    /// </summary>
+    public event Action<float> OnPlayerSprint;
+
+    /// <summary>
+    /// Invoked when the player is walking. Passes the walking FOV.
+    /// </summary>
+    public event Action<float> OnPlayerWalk;
+
+    /// <summary>
+    /// Invoked when the player is idle. Passes the base FOV.
+    /// </summary>
+    public event Action<float> OnPlayerIdle;
+
+
+    // ====================================================================================
     // PUBLIC METHODS
     // ====================================================================================
 
     /// <summary>
-    /// Handles movement input and applies linearVelocity to the Rigidbody.
-    /// Accounts for sprinting and in-air movement smoothing.
+    /// Handles horizontal movement, sprinting, in-air control smoothing,
+    /// and invokes movement-state events to adjust camera FOV.
     /// </summary>
     public void Move()
     {
-        // Get normalized input from PlayerController
-        Vector3 moveValue = _playerController.Move.normalized;
+        Vector3 input = _playerController.Move.normalized;
 
-        // Transform local input into world space
-        Vector3 moveDirection = transform.TransformDirection(moveValue);
-        Vector3 targetLinearVelocity = moveDirection * _playerController.Speed;
+        // Convert input to world space
+        Vector3 moveDirection = transform.TransformDirection(input);
+        Vector3 targetVelocity = moveDirection * _playerController.Speed;
 
         // Apply sprint multiplier
         if (_playerController.IsSprinting)
         {
-            targetLinearVelocity *= _playerController.SprintSpeedScale;
+            targetVelocity *= _playerController.SprintSpeedScale;
         }
 
-        // Apply in-air smoothing and speed scaling
+        // Apply in-air smoothing for horizontal movement
         if (_playerController.CurrentMovementState == MovementState.InAir)
         {
-            Vector3 currentHorizontalVelocity = new Vector3(
+            Vector3 currentVel = new Vector3(
                 _playerController.Rigidbody.linearVelocity.x,
-                0,
+                0f,
                 _playerController.Rigidbody.linearVelocity.z
             );
 
-            Vector3 targetHorizontalVelocity = targetLinearVelocity * _playerController.InAirSpeedScale;
+            Vector3 targetHorizontal = targetVelocity * _playerController.InAirSpeedScale;
 
-            Vector3 lerpedHorizontalVelocity = Vector3.Lerp(
-                currentHorizontalVelocity,
-                targetHorizontalVelocity,
+            Vector3 smoothedHorizontal = Vector3.Lerp(
+                currentVel,
+                targetHorizontal,
                 Time.deltaTime * _playerController.InAirSlowdownSmoothing
             );
 
-            targetLinearVelocity = new Vector3(
-                lerpedHorizontalVelocity.x,
-                targetLinearVelocity.y,
-                lerpedHorizontalVelocity.z
+            targetVelocity = new Vector3(
+                smoothedHorizontal.x,
+                targetVelocity.y,
+                smoothedHorizontal.z
             );
         }
 
-        // Preserve vertical linearVelocity (gravity, jumping)
-        targetLinearVelocity.y = _playerController.Rigidbody.linearVelocity.y;
+        // Preserve vertical velocity (gravity and jumps)
+        targetVelocity.y = _playerController.Rigidbody.linearVelocity.y;
 
-        // Apply the calculated linearVelocity if there's input
-        if (moveValue != Vector3.zero)
+
+        // ==========================================================
+        // APPLY MOVEMENT + INVOKE EVENTS
+        // ==========================================================
+
+        if (input != Vector3.zero)
         {
-            _playerController.Rigidbody.linearVelocity = targetLinearVelocity;
+            _playerController.Rigidbody.linearVelocity = targetVelocity;
+
+            if (_playerController.IsSprinting)
+            {
+                OnPlayerSprint?.Invoke(_playerController.SprintCameraFov);
+            }
+            else
+            {
+                OnPlayerWalk?.Invoke(_playerController.WalkCameraFov);
+            }
+        }
+        else
+        {
+            OnPlayerIdle?.Invoke(_playerController.BaseCameraFov);
         }
     }
 
+
     /// <summary>
-    /// Makes the player jump by applying an impulse force.
-    /// Sets the movement state to InAir.
+    /// Makes the player jump by applying an upward force
+    /// and switching to the in-air state.
     /// </summary>
     public void Jump()
     {
         _playerController.CurrentMovementState = MovementState.InAir;
-        Debug.Log($"[PLAYER] Updated movement state: {_playerController.CurrentMovementState}. -");
 
         _playerController.Rigidbody.AddForce(
             _playerController.Rigidbody.transform.up * _playerController.JumpPower,
             ForceMode.Impulse
         );
+
+        Debug.Log($"[PLAYER] Updated movement state: {_playerController.CurrentMovementState}");
     }
 
+
     /// <summary>
-    /// Sets the player's current movement state.
+    /// Updates the player's current movement state.
     /// </summary>
-    /// <param name="state">The new movement state to apply.</param>
     public void SetMovementState(MovementState state)
     {
         _playerController.CurrentMovementState = state;

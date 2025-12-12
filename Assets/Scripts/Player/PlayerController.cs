@@ -4,13 +4,14 @@ using UnityEngine.InputSystem;
 using UnityEngine.ProBuilder.MeshOperations;
 
 /// <summary>
-/// Handles player input, movement, camera control, and interactions.
-/// Encapsulates references to all player-related systems (movement, look, collision, interaction, etc.).
+/// Central controller for all player-related systems.
+/// Handles input, movement, camera control, collision checks, and interaction.
+/// Exposes references to the movement, look, collision, gizmos, and interaction components.
 /// </summary>
 public class PlayerController : MonoBehaviour
 {
     // ====================================================================================
-    // INSPECTOR FIELDS (Configuration / Settings)
+    // INSPECTOR FIELDS (Configuration)
     // ====================================================================================
 
     [Header("Movement Settings")]
@@ -40,8 +41,25 @@ public class PlayerController : MonoBehaviour
     public LayerMask ResetJumpLayers => _resetJumpLayers;
 
     [Header("Camera Settings")]
+    [Header("Look Sensitivity")]
     [SerializeField] private float _lookSensitivity = 0.07f;
     public float LookSensitivity => _lookSensitivity;
+
+    [Header("Movement FOV Settings")]
+    [SerializeField] private float _baseCameraFov = 70;
+    public float BaseCameraFov => _baseCameraFov;
+
+    [SerializeField] private float _walkCameraFov = 80;
+    public float WalkCameraFov => _walkCameraFov;
+
+    [SerializeField] private float _sprintCameraFov = 100;
+    public float SprintCameraFov => _sprintCameraFov;
+
+    [SerializeField] private float _cameraFovChangeSmoothingFactor = 5f;
+    public float CameraFovChangeSmoothingFactor => _cameraFovChangeSmoothingFactor;
+
+    [SerializeField] private bool _changeCameraFovWithMovement = true;
+    public bool ChangeCameraFovWithMovement => _changeCameraFovWithMovement;
 
     [Header("Dependencies")]
     [SerializeField] private PlayerInteraction _playerInteraction;
@@ -59,6 +77,9 @@ public class PlayerController : MonoBehaviour
     [SerializeField] private PlayerMovement _playerMovement;
     public PlayerMovement PlayerMovement => _playerMovement;
 
+    [Header("World Void Detection")]
+    [SerializeField] private float _killPlayerAfterHeight = -8f;
+    public float KillPlayerAfterHeight => _killPlayerAfterHeight;
 
     // ====================================================================================
     // PRIVATE FIELDS
@@ -84,23 +105,23 @@ public class PlayerController : MonoBehaviour
     public Vector2 Look => _look.ReadValue<Vector2>();
 
     private InputAction _interact;
-    public Vector2 Interact => _look.ReadValue<Vector2>(); // same as original logic
+    public Vector2 Interact => _look.ReadValue<Vector2>();
 
     private InputAction _sprint;
     public bool IsSprinting => _sprint.IsPressed();
 
-    // Camera rotation values
+    // Camera rotation (stored for PlayerLook)
     private float _cameraY;
     public float CameraY => _cameraY;
 
     private float _cameraX;
     public float CameraX => _cameraX;
 
-    // Jump queuing
+    // Jump queuing for smoother input handling
     private bool _isJumpQueued;
     public bool IsJumpQueued => _isJumpQueued;
 
-    // Player movement state
+    // Current movement state (grounded / in-air / sprinting)
     private PlayerMovement.MovementState _currentMovementState;
     public PlayerMovement.MovementState CurrentMovementState
     {
@@ -108,17 +129,16 @@ public class PlayerController : MonoBehaviour
         set => _currentMovementState = value;
     }
 
-    // Cached player collider dimensions for ground checks
+    // Cached collider values for ground checks
     private Vector2 _playerColliderDimensions;
     public Vector2 PlayerColliderDimensions => _playerColliderDimensions;
-
 
     // ====================================================================================
     // UNITY CALLBACKS
     // ====================================================================================
 
     /// <summary>
-    /// Initialize input actions and references before Start.
+    /// Creates the input system and caches all InputActions.
     /// </summary>
     private void Awake()
     {
@@ -132,8 +152,7 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Cache components and set initial values.
-    /// Lock cursor for first-person control.
+    /// Initializes references and sets initial player settings.
     /// </summary>
     private void Start()
     {
@@ -144,9 +163,9 @@ public class PlayerController : MonoBehaviour
         _camera = GetComponentInChildren<Camera>();
         _playerInteraction = GetComponent<PlayerInteraction>();
 
-        // Store player collider size for ground detection
+        // Cache collider dimensions for efficient ground checks
         _playerColliderDimensions = new Vector2(
-            _playerCollider.radius * 2,
+            _playerCollider.radius * 2f,
             _playerCollider.height
         );
     }
@@ -155,7 +174,7 @@ public class PlayerController : MonoBehaviour
     private void OnDisable() => _gameInput.Disable();
 
     /// <summary>
-    /// Handle collision events and set grounded state when player touches valid surfaces.
+    /// Detects collisions with valid ground and updates movement state accordingly.
     /// </summary>
     private void OnCollisionEnter(Collision collision)
     {
@@ -171,7 +190,7 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Physics-based movement and jump execution.
+    /// Handles physics-based movement and jump execution.
     /// </summary>
     private void FixedUpdate()
     {
@@ -185,17 +204,17 @@ public class PlayerController : MonoBehaviour
     }
 
     /// <summary>
-    /// Handles input for looking, interaction, and queuing jumps each frame.
+    /// Processes camera look, interaction input, and jump queuing.
     /// </summary>
     private void Update()
     {
-        // Update camera rotation
         _playerLook.Look();
 
-        // Handle player interaction input
+        // Interactions
         if (_interact.WasPressedThisFrame())
         {
             Debug.Log("[PLAYER] Interaction event cast.");
+
             IInteractable interactable = _playerInteraction.GetInteractable();
             if (interactable != null)
             {
@@ -207,7 +226,7 @@ public class PlayerController : MonoBehaviour
             }
         }
 
-        // Handle jump input
+        // Jump input
         if (_jump.WasPressedThisFrame())
         {
             if (_currentMovementState != PlayerMovement.MovementState.InAir)

@@ -1,8 +1,9 @@
-﻿using UnityEngine;
+﻿using System;
+using UnityEngine;
 
 /// <summary>
-/// Handles the player's camera and body rotation based on mouse or controller look input.
-/// Separates camera vertical rotation from player body horizontal rotation.
+/// Handles the player's camera rotation, player-body rotation,
+/// and dynamic camera FOV changes based on movement events.
 /// </summary>
 public class PlayerLook : MonoBehaviour
 {
@@ -17,8 +18,25 @@ public class PlayerLook : MonoBehaviour
     // PRIVATE FIELDS
     // ====================================================================================
 
-    private float _cameraY; // Vertical rotation (pitch)
-    private float _cameraX; // Horizontal rotation (yaw)
+    private float _cameraY;        // Vertical rotation
+    private float _cameraX;        // Horizontal rotation
+    private float _cameraFOV;      // Target camera field of view
+
+
+    // ====================================================================================
+    // UNITY LIFECYCLE
+    // ====================================================================================
+
+    private void Start()
+    {
+        // Initialize FOV to the player's default setting
+        _cameraFOV = _playerController.BaseCameraFov;
+
+        // Subscribe to movement events (walk, sprint, idle)
+        _playerController.PlayerMovement.OnPlayerWalk += ChangeCameraFov;
+        _playerController.PlayerMovement.OnPlayerSprint += ChangeCameraFov;
+        _playerController.PlayerMovement.OnPlayerIdle += ChangeCameraFov;
+    }
 
 
     // ====================================================================================
@@ -26,33 +44,62 @@ public class PlayerLook : MonoBehaviour
     // ====================================================================================
 
     /// <summary>
-    /// Rotates the player and camera based on input from PlayerController.
-    /// Clamps vertical rotation to prevent flipping the camera.
+    /// Handles camera rotation, player-body rotation,
+    /// and smoothly transitions FOV when enabled.
     /// </summary>
     public void Look()
     {
-        // Get look input from PlayerController (mouse/controller)
         Vector2 lookValue = _playerController.Look;
 
-        // Apply sensitivity and accumulate rotation
+        // Apply sensitivity-scaled input
         _cameraX += lookValue.x * _playerController.LookSensitivity;
         _cameraY += lookValue.y * _playerController.LookSensitivity;
 
-        // Clamp vertical rotation to avoid over-rotation
+        // Clamp vertical rotation
         _cameraY = Mathf.Clamp(_cameraY, -90f, 90f);
 
-        // Rotate the camera (pitch and yaw)
+        // Rotate camera (local rotation)
         _playerController.Camera.transform.rotation = Quaternion.Euler(
-            -_cameraY,   // invert vertical input
+            -_cameraY,               // invert vertical input
             _cameraX,
-            0
+            0f
         );
 
-        // Rotate the player body only around the Y-axis (yaw)
+        // Rotate player body on Y-axis only
         _playerController.Rigidbody.transform.rotation = Quaternion.Euler(
-            _playerController.Rigidbody.transform.rotation.eulerAngles.x, // keep current X
+            _playerController.Rigidbody.transform.rotation.eulerAngles.x,
             _cameraX,
-            _playerController.Rigidbody.transform.rotation.eulerAngles.z  // keep current Z
+            _playerController.Rigidbody.transform.rotation.eulerAngles.z
         );
+
+        // Smoothly lerp camera FOV if enabled
+        if (_playerController.ChangeCameraFovWithMovement)
+        {
+            float smoothedFov = Mathf.Lerp(
+                _playerController.Camera.fieldOfView,
+                _cameraFOV,
+                Time.deltaTime * _playerController.CameraFovChangeSmoothingFactor
+            );
+
+            _playerController.Camera.fieldOfView = smoothedFov;
+        }
+        else if (_cameraFOV != _playerController.BaseCameraFov)
+        {
+            // Reset FOV when feature is disabled
+            _cameraFOV = _playerController.BaseCameraFov;
+        }
+    }
+
+
+    // ====================================================================================
+    // PRIVATE METHODS
+    // ====================================================================================
+
+    /// <summary>
+    /// Updates the target camera FOV when movement state changes.
+    /// </summary>
+    private void ChangeCameraFov(float fov)
+    {
+        _cameraFOV = fov;
     }
 }
