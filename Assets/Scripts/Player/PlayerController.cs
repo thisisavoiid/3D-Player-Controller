@@ -157,7 +157,7 @@ public class PlayerController : MonoBehaviour
     private void Start()
     {
         Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = true;
+        Cursor.visible = false;
 
         _rb = GetComponent<Rigidbody>();
         _camera = GetComponentInChildren<Camera>();
