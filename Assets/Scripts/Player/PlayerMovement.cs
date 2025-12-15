@@ -1,19 +1,17 @@
 ﻿using System;
 using UnityEngine;
-using UnityEngine.Events;
 
 /// <summary>
 /// Handles player movement, speed scaling, sprint behavior,
-/// grounded vs. in-air movement, and triggers movement-related events.
+/// grounded vs. in-air movement, crouching, and triggers movement-related events.
 /// </summary>
 public class PlayerMovement : MonoBehaviour
 {
     // ====================================================================================
-    // INSPECTOR FIELDS
+    // INSPECTOR / DEPENDENCIES
     // ====================================================================================
 
     [SerializeField] private PlayerController _playerController;
-
 
     // ====================================================================================
     // PUBLIC TYPES
@@ -28,34 +26,40 @@ public class PlayerMovement : MonoBehaviour
         InAir
     }
 
+    // ====================================================================================
+    // PROPERTIES & PRIVATE FIELDS
+    // ====================================================================================
+
+    private bool _isCrouching = false;
+
+    /// <summary>
+    /// Returns true if the player is currently crouching.
+    /// </summary>
+    public bool IsCrouching => _isCrouching;
+
+    /// <summary>
+    /// Returns true if the player is moving forward relative to their facing direction.
+    /// Used for sprint restrictions.
+    /// </summary>
+    public bool IsMovingForward => IsForwardMovement(
+        transform.TransformDirection(_playerController.Move.normalized)
+    );
 
     // ====================================================================================
     // EVENTS
     // ====================================================================================
 
-    /// <summary>
-    /// Invoked when the player is sprinting. Passes the sprint FOV.
-    /// </summary>
     public event Action<float> OnPlayerSprint;
-
-    /// <summary>
-    /// Invoked when the player is walking. Passes the walking FOV.
-    /// </summary>
     public event Action<float> OnPlayerWalk;
-
-    /// <summary>
-    /// Invoked when the player is idle. Passes the base FOV.
-    /// </summary>
     public event Action<float> OnPlayerIdle;
 
-
     // ====================================================================================
-    // PUBLIC METHODS
+    // PUBLIC METHODS — MOVEMENT
     // ====================================================================================
 
     /// <summary>
-    /// Handles horizontal movement, sprinting, in-air control smoothing,
-    /// and invokes movement-state events to adjust camera FOV.
+    /// Handles horizontal movement, sprinting, crouch speed scaling,
+    /// in-air smoothing, and invokes movement-state events to adjust camera FOV.
     /// </summary>
     public void Move()
     {
@@ -66,12 +70,18 @@ public class PlayerMovement : MonoBehaviour
         Vector3 targetVelocity = moveDirection * _playerController.Speed;
 
         // Apply sprint multiplier
-        if (_playerController.IsSprinting)
+        if (_playerController.IsSprintPressed && !_isCrouching && IsMovingForward)
         {
             targetVelocity *= _playerController.SprintSpeedScale;
         }
 
-        // Apply in-air smoothing for horizontal movement
+        // Apply crouch multiplier
+        if (_isCrouching)
+        {
+            targetVelocity *= _playerController.CrouchSpeedScale;
+        }
+
+        // In-air smoothing
         if (_playerController.CurrentMovementState == MovementState.InAir)
         {
             Vector3 currentVel = new Vector3(
@@ -95,9 +105,8 @@ public class PlayerMovement : MonoBehaviour
             );
         }
 
-        // Preserve vertical velocity (gravity and jumps)
+        // Preserve vertical velocity
         targetVelocity.y = _playerController.Rigidbody.linearVelocity.y;
-
 
         // ==========================================================
         // APPLY MOVEMENT + INVOKE EVENTS
@@ -107,14 +116,10 @@ public class PlayerMovement : MonoBehaviour
         {
             _playerController.Rigidbody.linearVelocity = targetVelocity;
 
-            if (_playerController.IsSprinting)
-            {
+            if (_playerController.IsSprintPressed && !_isCrouching && IsMovingForward)
                 OnPlayerSprint?.Invoke(_playerController.SprintCameraFov);
-            }
             else
-            {
                 OnPlayerWalk?.Invoke(_playerController.WalkCameraFov);
-            }
         }
         else
         {
@@ -122,23 +127,35 @@ public class PlayerMovement : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Toggles crouch state and adjusts camera position.
+    /// </summary>
+    public void ToggleCrouch()
+    {
+        _isCrouching = !_isCrouching;
+
+        Vector3 currCameraPos = _playerController.Camera.transform.position;
+
+        _playerController.Camera.transform.position = _isCrouching
+            ? currCameraPos + Vector3.up * _playerController.VerticalCrouchOffset
+            : currCameraPos + Vector3.down * _playerController.VerticalCrouchOffset;
+
+        Debug.Log($"[PLAYER] Crouch toggled. IsCrouching: {_isCrouching}");
+    }
 
     /// <summary>
-    /// Makes the player jump by applying an upward force
+    /// Makes the player jump by applying an upward impulse
     /// and switching to the in-air state.
     /// </summary>
     public void Jump()
     {
-        _playerController.CurrentMovementState = MovementState.InAir;
+        SetMovementState(MovementState.InAir);
 
         _playerController.Rigidbody.AddForce(
             _playerController.Rigidbody.transform.up * _playerController.JumpPower,
             ForceMode.Impulse
         );
-
-        Debug.Log($"[PLAYER] Updated movement state: {_playerController.CurrentMovementState}");
     }
-
 
     /// <summary>
     /// Updates the player's current movement state.
@@ -146,5 +163,18 @@ public class PlayerMovement : MonoBehaviour
     public void SetMovementState(MovementState state)
     {
         _playerController.CurrentMovementState = state;
+        Debug.Log($"[PLAYER] Updated movement state: {_playerController.CurrentMovementState}");
+    }
+
+    // ====================================================================================
+    // PRIVATE METHODS — HELPERS
+    // ====================================================================================
+
+    /// <summary>
+    /// Checks if the input movement direction is roughly forward relative to the player.
+    /// </summary>
+    private bool IsForwardMovement(Vector3 direction)
+    {
+        return Vector3.Dot(_playerController.Rigidbody.transform.forward, direction) >= 0f;
     }
 }

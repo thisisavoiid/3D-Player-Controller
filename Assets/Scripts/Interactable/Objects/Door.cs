@@ -38,6 +38,7 @@ public class Door : MonoBehaviour, IInteractable
     /// </summary>
     public void Interact()
     {
+        Debug.Log("[DOOR] Player interacted with the door -");
         switch (_currDoorState)
         {
             case DoorState.Opened:
@@ -50,5 +51,6 @@ public class Door : MonoBehaviour, IInteractable
                 _currDoorState = DoorState.Opened;
                 break;
         }
+        Debug.Log($"[DOOR] New door state: {_currDoorState} -");
     }
 }

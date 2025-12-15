@@ -50,7 +50,7 @@ public class PlayerLook : MonoBehaviour
     public void Look()
     {
         Vector2 lookValue = _playerController.Look;
-
+        
         // Apply sensitivity-scaled input
         _cameraX += lookValue.x * _playerController.LookSensitivity;
         _cameraY += lookValue.y * _playerController.LookSensitivity;

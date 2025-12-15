@@ -33,6 +33,6 @@ public class Box : MonoBehaviour, IInteractable
     public void Interact()
     {
         _meshRenderer.material.color = Random.ColorHSV();
-        Debug.Log("[Box] Player interacted with the box.");
+        Debug.Log("[BOX] Player interacted with the box -");
     }
 }
