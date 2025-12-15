@@ -137,7 +137,7 @@ public class PlayerMovement : MonoBehaviour
         Vector3 currCameraPos = _playerController.Camera.transform.position;
 
         _playerController.Camera.transform.position = _isCrouching
-            ? currCameraPos + Vector3.up * _playerController.VerticalCrouchOffset
+            ? currCameraPos + Vector3.down * -_playerController.VerticalCrouchOffset
             : currCameraPos + Vector3.down * _playerController.VerticalCrouchOffset;
 
         Debug.Log($"[PLAYER] Crouch toggled. IsCrouching: {_isCrouching}");
